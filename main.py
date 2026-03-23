@@ -43,6 +43,7 @@ def add_customer(cursor, conn):
         conn.rollback()
         print("Error:", e)
 
+# THE ADD ORDER FUNCTION STILL NEEDS WORK
 def add_order(cursor, conn):
     print('Provide the following order information...')
 
@@ -78,8 +79,6 @@ def add_order(cursor, conn):
 
     varList = [v.strip() or None for v in varList]
 
-
-
     # Attempt to add the new customer to the database
     try:
         cursor.execute(
@@ -96,6 +95,93 @@ def add_order(cursor, conn):
     except Exception as e:
         conn.rollback()
         print("Error:", e)
+
+def remove_order(cursor, conn):
+    # Prompt user for order ID
+    orderid = input('Provide the order ID of the order to be deleted: ')
+
+    # Attempt to delete the order from both the orders and order_details tables, using a transaction
+    try:
+        conn.begin()
+
+        cursor.execute(
+            "DELETE FROM order_details WHERE OrderID IN(%s)", orderid
+        )
+
+        cursor.execute(
+            "DELETE FROM orders WHERE OrderID IN(%s)", orderid
+        )
+
+        conn.commit()
+        print("Order deleted.")
+
+    # Handle exceptions
+    except Exception as e:
+        conn.rollback()
+        print("Error:", e)
+
+def ship_order(cursor, conn):
+    orderid = input('Provide the order ID of the order to be shipped: ')
+
+    # Check that there is no out of stock inventory
+    cursor.execute('SELECT ProductID, Quantity FROM order_details WHERE OrderID = %s', (orderid,))
+    productsCounts = cursor.fetchall()
+
+    noOutOfStock = True
+
+    for item in productsCounts:
+        cursor.execute('SELECT TransactionType, Quantity FROM inventory_transactions WHERE ProductID = %s', (str(item[0]),))
+        transactions = cursor.fetchall()
+
+        inventory = 0
+
+        for transaction in transactions:
+            print(transaction)
+            if transaction[0] == 1:
+                inventory += transaction[1]
+            else:
+                inventory -= transaction[1]
+
+        if inventory < item[1]:
+            noOutOfStock = False
+            print('Net inventory for ' + str(item[0]) + ' is ' + str(inventory))
+            #break
+
+    if noOutOfStock:
+        # Get shipping info from the user
+        shippingDate = input('Date shipped: ')
+        shipperid = input('Shipper ID: ')
+        shippingFee = input('Shipping fee: ')
+
+        # Handle NULLs
+        varList = [shippingDate, shipperid, shippingFee, orderid]
+
+        varList = [v.strip() or None for v in varList]
+
+        try:
+            conn.begin()
+
+            cursor.execute('UPDATE orders '
+                           'SET ShippedDate = %s, ShipperID = %s, ShippingFee = %s '
+                           'WHERE OrderID = %s;', varList)
+
+            for item in productsCounts:
+                values = ('1', str(item[0]), str(item[1]))
+                cursor.execute('INSERT INTO inventory_transactions(TransactionType, TransactionCreatedDate, '
+                               'TransactionModifiedDate, ProductID, Quantity) '
+                               'VALUES(s%, NOW(), NOW(), s%, s%);', values)
+
+            conn.commit()
+
+        # Handle exceptions
+        except Exception as e:
+            conn.rollback()
+            print("Error:", e)
+
+        print('Order updated.')
+
+    else:
+        print('There is not enough quantity to fulfill this order.')
 
 def main():
     conn = pymysql.connect(
@@ -130,6 +216,10 @@ def main():
             add_customer(cursor, conn)
         elif selection == '2':
             add_order(cursor, conn)
+        elif selection == '3':
+            remove_order(cursor, conn)
+        elif selection == '4':
+            ship_order(cursor, conn)
 
     cursor.execute('SELECT * FROM customers LIMIT 5')
 
