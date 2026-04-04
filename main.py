@@ -183,6 +183,119 @@ def ship_order(cursor, conn):
     else:
         print('There is not enough quantity to fulfill this order.')
 
+def show_pending_orders(cursor, conn):
+    cursor.execute("""
+        SELECT OrderID, CustomerID, EmployeeID, OrderDate,
+               ShipName, ShipCity, ShipState, ShippingFee, StatusID
+        FROM orders
+        WHERE ShippedDate IS NULL
+        ORDER BY OrderDate DESC;
+    """)
+
+    rows = cursor.fetchall()
+
+    # Header
+    print("=" * 110)
+    print(f"{'OrderID':<10}{'CustID':<10}{'EmpID':<10}{'OrderDate':<20}"
+          f"{'ShipName':<20}{'City':<15}{'State':<10}{'Fee':<10}{'Status':<10}")
+    print("=" * 110)
+
+    # Rows
+    for row in rows:
+        order_id = row[0]
+        cust_id = row[1]
+        emp_id = row[2]
+        order_date = str(row[3]) if row[3] else "N/A"
+        ship_name = (row[4][:17] + '...') if row[4] and len(row[4]) > 20 else (row[4] or "N/A")
+        city = row[5] if row[5] else "N/A"
+        state = row[6] if row[6] else "N/A"
+        fee = row[7] if row[7] is not None else "N/A"
+        status = row[8] if row[8] is not None else "N/A"
+
+        print(f"{order_id:<10}{cust_id:<10}{emp_id:<10}{order_date:<20}"
+              f"{ship_name:<20}{city:<15}{state:<10}{fee:<10}{status:<10}")
+
+    print("=" * 110)
+
+def add_transaction(cursor, conn):
+    # Get transaction info from user
+    print('Input details about the transaction...')
+    print()
+    tranType = input('TransactionType: ')
+    while not tranType.isdigit() or int(tranType) < 1 or int(tranType) > 3:
+        tranType = input('Enter an integer between 1 and 4: ')
+    productid = input('Product ID: ')
+    quantity = input('Quantity: ')
+    pid = input('Purchase order ID: ')
+    cid = input('Customer order ID: ')
+    com = input('Comments: ')
+
+    # Handle NULLs
+    varList = [tranType, productid, quantity, pid, cid, com]
+
+    varList = [v.strip() or None for v in varList]
+
+    try:
+        cursor.execute(
+            'INSERT INTO inventory_transactions(TransactionType, TransactionCreatedDate, TransactionModifiedDate, ProductID, '
+            'Quantity, PurchaseOrderID, CustomerOrderID, Comments) VALUES (%s, NOW(), NOW(), %s, %s, %s, %s, %s)',
+            varList
+        )
+
+        conn.commit()
+
+        print('Transaction added.')
+        print()
+
+    # Handle exceptions
+    except Exception as e:
+        conn.rollback()
+        print("Error:", e)
+
+
+def top_5_products(cursor, conn):
+    cursor.execute("""
+        SELECT p.ProductName, SUM(it.Quantity) AS total_sold
+        FROM inventory_transactions it
+        JOIN products p ON it.ProductID = p.ID
+        WHERE it.TransactionType = 2
+        GROUP BY it.ProductID, p.ProductName
+        ORDER BY total_sold DESC
+        LIMIT 5;
+    """)
+
+    rows = cursor.fetchall()
+
+    print("=" * 50)
+    print(f"{'Product':<30}{'Total Sold':<15}")
+    print("=" * 50)
+
+    for name, total in rows:
+        print(f"{name:<30}{total:<15}")
+
+    print("=" * 50)
+
+def sub_menu(cursor, conn):
+    # Initialize selection
+    selection = 1
+
+    while int(selection) != 3:
+        print('Additional options: ')
+        print('1. Add transaction')
+        print('2. List the top 5 selling products')
+        print('3. Return to main menu')
+
+
+        # Get users selection and validate input
+        selection = input('Select: ')
+        while not selection.isdigit() or int(selection) < 1 or int(selection) > 3:
+            selection = input('Please enter a number between 1 and 3: ')
+
+        if selection == '1':
+            add_transaction(cursor, conn)
+        if selection == '2':
+            top_5_products(cursor, conn)
+
 def main():
     conn = pymysql.connect(
         host='localhost',
@@ -220,6 +333,10 @@ def main():
             remove_order(cursor, conn)
         elif selection == '4':
             ship_order(cursor, conn)
+        elif selection == '5':
+            show_pending_orders(cursor, conn)
+        elif selection == '6':
+            sub_menu(cursor, conn)
 
     cursor.execute('SELECT * FROM customers LIMIT 5')
 
